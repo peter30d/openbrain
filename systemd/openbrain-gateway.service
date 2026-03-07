@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenBrain Gateway
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/openbrain
+EnvironmentFile=/opt/openbrain/systemd/openbrain-gateway.env
+ExecStart=/opt/openbrain/.venv/bin/uvicorn openbrain.api:app --host ${OPENBRAIN_HOST} --port ${OPENBRAIN_PORT}
+Restart=always
+RestartSec=5
+User=peter
+Group=peter
+
+[Install]
+WantedBy=default.target
+
