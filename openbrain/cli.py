@@ -34,6 +34,27 @@ def capture(
     typer.echo(r.text)
 
 
+@app.command("preview-enrich")
+def preview_enrich(
+    text: str,
+    memory_type: str = "note",
+    project: str = "",
+):
+    payload = {
+        "text": text,
+        "memory_type": memory_type,
+        "source_surface": "telegram_openclaw",
+        "source_session_id": None,
+        "project": project or None,
+        "tags": [],
+        "topics": [],
+        "people": [],
+    }
+    r = httpx.post(f"{base_url()}/memories/enrich-preview", json=payload, timeout=30)
+    r.raise_for_status()
+    typer.echo(json.dumps(r.json(), indent=2))
+
+
 @app.command()
 def search(query: str, k: int = 5):
     r = httpx.post(f"{base_url()}/search/local", json={"query": query, "k": k}, timeout=30)

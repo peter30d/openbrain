@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from openbrain.service import MemoryGatewayService
 
-app = FastAPI(title="OpenBrain Gateway", version="0.1.0")
+app = FastAPI(title="OpenBrain Gateway", version="0.2.0")
 svc = MemoryGatewayService()
 
 
@@ -39,6 +39,18 @@ def health():
 @app.get("/sources/status")
 def source_status():
     return svc.source_status()
+
+
+@app.post("/memories/enrich-preview")
+def enrich_preview(req: CaptureRequest):
+    return svc.preview_enrichment(
+        text_value=req.text,
+        memory_type=req.memory_type,
+        project=req.project,
+        tags=req.tags,
+        topics=req.topics,
+        people=req.people,
+    )
 
 
 @app.post("/memories/capture")
