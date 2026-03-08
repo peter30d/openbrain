@@ -460,6 +460,17 @@ class BrianMCPConnector(BrianConnectorBase):
             content = raw.get("content") or raw.get("contents")
             text = self._extract_content_text(content)
             if text:
+                normalized_text = text.strip().lower()
+
+                # Brian's MCP search tool may return a human-readable "no results found"
+                # payload as text. Treat that as an empty result so federated ranking
+                # does not place a useless Brian placeholder above relevant local memory.
+                if tool_name == "search" and (
+                    normalized_text.startswith("no results found")
+                    or "no results found for:" in normalized_text
+                ):
+                    return []
+
                 return [
                     ExternalResult(
                         source_namespace="external.brianmadden",

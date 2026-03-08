@@ -223,6 +223,11 @@ class MemoryGatewayService:
                 if mcp_results:
                     mcp_results.sort(key=lambda r: r.confidence, reverse=True)
                     return [r.__dict__ for r in mcp_results[:k]]
+
+                # MCP is healthy but returned no useful results.
+                # Do not silently substitute repo fallback in this case,
+                # or users will think we never used the live MCP transport.
+                return []
             except Exception as e:
                 self._audit("brian_mcp_search_error", {"query": query, "error": str(e)})
 
