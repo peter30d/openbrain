@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtualenv
+.venv/
+
+# Environment / secrets
+.env
+
+# Runtime-generated archives and backups
+archive/
+backups/
+
+# Local exports / dumps
+openbrain-initial.sql
+
+# Optional local logs
+*.log

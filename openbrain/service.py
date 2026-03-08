@@ -11,6 +11,7 @@ from openbrain.embeddings import EmbeddingProvider
 from openbrain.archive import write_archive
 from openbrain.connectors import BrianRepoConnector, BrianMCPConnector, ExternalResult
 from openbrain.config import settings
+from openbrain.enrich import MemoryEnricher
 
 
 def utcnow() -> datetime:
@@ -20,6 +21,7 @@ def utcnow() -> datetime:
 class MemoryGatewayService:
     def __init__(self):
         self.embedder = EmbeddingProvider(settings.embed_model)
+        self.enricher = MemoryEnricher()
         self.brian_repo = BrianRepoConnector(settings.brian_repo_dir) if settings.enable_brian_repo else None
         self.brian_mcp = BrianMCPConnector(settings.brian_mcp_url, settings.brian_timeout_seconds) if settings.enable_brian_mcp else None
 
@@ -27,6 +29,36 @@ class MemoryGatewayService:
         with SessionLocal() as db:
             db.add(GatewayAuditLog(event_type=event_type, payload=payload))
             db.commit()
+
+    def preview_enrichment(
+        self,
+        text_value: str,
+        memory_type: str = "note",
+        project: str | None = None,
+        tags: list[str] | None = None,
+        topics: list[str] | None = None,
+        people: list[str] | None = None,
+    ) -> dict[str, Any]:
+        enriched = self.enricher.enrich(
+            raw_text=text_value,
+            requested_memory_type=memory_type,
+            requested_project=project,
+            requested_tags=tags,
+            requested_topics=topics,
+            requested_people=people,
+        )
+        return {
+            "title": enriched.title,
+            "summary": enriched.summary,
+            "memory_type": enriched.memory_type,
+            "project": enriched.project,
+            "people": enriched.people,
+            "topics": enriched.topics,
+            "tags": enriched.tags,
+            "action_items": enriched.action_items,
+            "importance": enriched.importance,
+            "sensitivity": enriched.sensitivity,
+        }
 
     def capture_memory(
         self,
@@ -40,28 +72,36 @@ class MemoryGatewayService:
         people: list[str] | None = None,
     ) -> dict[str, Any]:
         cleaned = " ".join(text_value.split()).strip()
-        summary = cleaned[:280]
-        title = summary[:80] if len(summary) > 80 else summary
+
+        enriched = self.enricher.enrich(
+            raw_text=text_value,
+            requested_memory_type=memory_type,
+            requested_project=project,
+            requested_tags=tags,
+            requested_topics=topics,
+            requested_people=people,
+        )
+
         record_id = uuid.uuid4()
         captured_at = utcnow()
         embedding = self.embedder.embed(cleaned)
 
         draft = {
             "id": record_id,
-            "title": title or "Memory",
+            "title": enriched.title,
             "raw_text": text_value,
             "cleaned_text": cleaned,
-            "summary": summary,
-            "memory_type": memory_type,
+            "summary": enriched.summary,
+            "memory_type": enriched.memory_type,
             "source_surface": source_surface,
             "source_session_id": source_session_id,
-            "project": project,
-            "people": people or [],
-            "topics": topics or [],
-            "tags": tags or [],
-            "action_items": [],
-            "importance": 3,
-            "sensitivity": "normal",
+            "project": enriched.project,
+            "people": enriched.people,
+            "topics": enriched.topics,
+            "tags": enriched.tags,
+            "action_items": enriched.action_items,
+            "importance": enriched.importance,
+            "sensitivity": enriched.sensitivity,
             "provenance_type": "local",
             "provenance_ref": None,
             "captured_at": captured_at,
@@ -97,8 +137,32 @@ class MemoryGatewayService:
             db.add(rec)
             db.commit()
 
-        self._audit("capture_memory", {"id": str(record_id), "source_surface": source_surface})
-        return {"id": str(record_id), "title": draft["title"], "summary": summary, "archive_path": archive_path}
+        self._audit(
+            "capture_memory",
+            {
+                "id": str(record_id),
+                "source_surface": source_surface,
+                "memory_type": enriched.memory_type,
+                "project": enriched.project,
+                "people": enriched.people,
+                "topics": enriched.topics,
+            },
+        )
+
+        return {
+            "id": str(record_id),
+            "title": enriched.title,
+            "summary": enriched.summary,
+            "memory_type": enriched.memory_type,
+            "project": enriched.project,
+            "people": enriched.people,
+            "topics": enriched.topics,
+            "tags": enriched.tags,
+            "action_items": enriched.action_items,
+            "importance": enriched.importance,
+            "sensitivity": enriched.sensitivity,
+            "archive_path": archive_path,
+        }
 
     def search_local_memory(self, query: str, k: int = 5) -> list[dict]:
         query_vec = self.embedder.embed(query)
@@ -113,6 +177,11 @@ class MemoryGatewayService:
                 archive_path,
                 provenance_type,
                 captured_at,
+                memory_type,
+                project,
+                people,
+                topics,
+                tags,
                 1 - (embedding <=> CAST(:query_vec AS vector)) AS score
             FROM memory_records
             WHERE status = 'active'
@@ -137,23 +206,37 @@ class MemoryGatewayService:
                     "id": str(row["id"]),
                     "archive_path": row["archive_path"],
                     "captured_at": row["captured_at"].isoformat() if row["captured_at"] else None,
+                    "memory_type": row["memory_type"],
+                    "project": row["project"],
+                    "people": row["people"],
+                    "topics": row["topics"],
+                    "tags": row["tags"],
                 },
             }
             for row in rows
         ]
 
     def search_brian(self, query: str, k: int = 5) -> list[dict]:
-        results: list[ExternalResult] = []
-        if self.brian_repo:
-            results.extend(self.brian_repo.search(query, k=k))
         if self.brian_mcp:
             try:
-                results.extend(self.brian_mcp.search(query, k=k))
-            except Exception:
-                pass
+                mcp_results = self.brian_mcp.search(query, k=k)
+                if mcp_results:
+                    mcp_results.sort(key=lambda r: r.confidence, reverse=True)
+                    return [r.__dict__ for r in mcp_results[:k]]
 
-        results.sort(key=lambda r: r.confidence, reverse=True)
-        return [r.__dict__ for r in results[:k]]
+                # MCP is healthy but returned no useful results.
+                # Do not silently substitute repo fallback in this case,
+                # or users will think we never used the live MCP transport.
+                return []
+            except Exception as e:
+                self._audit("brian_mcp_search_error", {"query": query, "error": str(e)})
+
+        repo_results: list[ExternalResult] = []
+        if self.brian_repo:
+            repo_results.extend(self.brian_repo.search(query, k=k))
+
+        repo_results.sort(key=lambda r: r.confidence, reverse=True)
+        return [r.__dict__ for r in repo_results[:k]]
 
     def federated_search(self, query: str, k: int = 5) -> dict:
         local = self.search_local_memory(query, k=k)
