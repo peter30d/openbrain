@@ -1,15 +1,58 @@
+from __future__ import annotations
+
+import os
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 PROJECT_ROOT = Path("/opt/openbrain")
+ENV_FILE = PROJECT_ROOT / ".env"
+
+
+def _load_env_file(path: Path) -> None:
+    """
+    Minimal deterministic .env loader so CLI and service behave the same
+    even if pydantic's env_file loading differs by environment.
+    """
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not key:
+            continue
+
+        if (
+            len(value) >= 2
+            and ((value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'"))
+        ):
+            value = value[1:-1]
+
+        os.environ.setdefault(key, value)
+
+
+_load_env_file(ENV_FILE)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(PROJECT_ROOT / ".env"),
         env_prefix="OPENBRAIN_",
         extra="ignore",
+        case_sensitive=False,
     )
+
     env: str = "dev"
     host: str = "127.0.0.1"
     port: int = 8094
@@ -31,4 +74,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore
-
