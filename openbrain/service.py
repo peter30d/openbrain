@@ -217,17 +217,21 @@ class MemoryGatewayService:
         ]
 
     def search_brian(self, query: str, k: int = 5) -> list[dict]:
-        results: list[ExternalResult] = []
-        if self.brian_repo:
-            results.extend(self.brian_repo.search(query, k=k))
         if self.brian_mcp:
             try:
-                results.extend(self.brian_mcp.search(query, k=k))
-            except Exception:
-                pass
+                mcp_results = self.brian_mcp.search(query, k=k)
+                if mcp_results:
+                    mcp_results.sort(key=lambda r: r.confidence, reverse=True)
+                    return [r.__dict__ for r in mcp_results[:k]]
+            except Exception as e:
+                self._audit("brian_mcp_search_error", {"query": query, "error": str(e)})
 
-        results.sort(key=lambda r: r.confidence, reverse=True)
-        return [r.__dict__ for r in results[:k]]
+        repo_results: list[ExternalResult] = []
+        if self.brian_repo:
+            repo_results.extend(self.brian_repo.search(query, k=k))
+
+        repo_results.sort(key=lambda r: r.confidence, reverse=True)
+        return [r.__dict__ for r in repo_results[:k]]
 
     def federated_search(self, query: str, k: int = 5) -> dict:
         local = self.search_local_memory(query, k=k)
