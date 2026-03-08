@@ -64,14 +64,14 @@ def search(query: str, k: int = 5):
 
 @app.command()
 def brian(query: str, k: int = 5):
-    r = httpx.post(f"{base_url()}/search/brian", json={"query": query, "k": k}, timeout=30)
+    r = httpx.post(f"{base_url()}/search/brian", json={"query": query, "k": k}, timeout=90)
     r.raise_for_status()
     typer.echo(json.dumps(r.json(), indent=2))
 
 
 @app.command()
 def federated(query: str, k: int = 5):
-    r = httpx.post(f"{base_url()}/search/federated", json={"query": query, "k": k}, timeout=30)
+    r = httpx.post(f"{base_url()}/search/federated", json={"query": query, "k": k}, timeout=90)
     r.raise_for_status()
     typer.echo(json.dumps(r.json(), indent=2))
 
